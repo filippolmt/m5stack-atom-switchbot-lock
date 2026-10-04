@@ -152,7 +152,8 @@ Plain `mpremote` fails with `could not enter raw repl`: every RFC2217 connection
 ├── .github/workflows/test.yml  # CI: tests on push/PR to main
 ├── SETUP.md             # Full setup guide
 ├── README.md            # This file
-├── CLAUDE.md            # Guidance for Claude Code (incl. the mbedTLS constraint)
+├── AGENTS.md            # Guidance for coding agents (Codex, pi, Cursor, …) incl. the mbedTLS constraint
+├── CLAUDE.md            # Imports AGENTS.md for Claude Code
 ├── LICENSE              # License
 └── .gitignore           # Excludes config.py and other sensitive files
 ```
@@ -347,7 +348,7 @@ Tests also run automatically via GitHub Actions on every push and PR to `main`.
 
 The tests stub the hardware and cannot reproduce the ESP32 **system heap** used by Wi-Fi/mbedTLS. Changing what `main.py` allocates at import time (new module-level functions, constants, imports, `Pin()`) can make the HTTPS call fail on the device with `MBEDTLS_ERR_MPI_ALLOC_FAILED`, even when every test passes.
 
-After uploading a changed `main.py`, open the serial log and press the button: the change is good only if the log shows `HTTP status: 200` and `"statusCode":100`. See [CLAUDE.md](CLAUDE.md) for the rules on what is safe to change.
+After uploading a changed `main.py`, open the serial log and press the button: the change is good only if the log shows `HTTP status: 200` and `"statusCode":100`. See [AGENTS.md](AGENTS.md) for the rules on what is safe to change.
 
 ## 🛠️ Troubleshooting
 
