@@ -198,8 +198,8 @@ Find your **lock** (e.g. Lock Pro, Lock Ultra) in the device list and copy the `
 ### 5.1 Clone/Download this Repository
 
 ```bash
-git clone https://github.com/filippolmt/m5stack-atom-switchbot-lock-pro.git
-cd m5stack-atom-switchbot-lock-pro
+git clone https://github.com/filippolmt/m5stack-atom-switchbot-lock.git
+cd m5stack-atom-switchbot-lock
 ```
 
 Or download the ZIP from GitHub and extract it.

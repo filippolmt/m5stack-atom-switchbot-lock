@@ -51,8 +51,8 @@ Follow the full guide in **[SETUP.md](SETUP.md)** to:
 
 ```bash
 # Clone the repository
-git clone https://github.com/filippolmt/m5stack-atom-switchbot-lock-pro.git
-cd m5stack-atom-switchbot-lock-pro
+git clone https://github.com/filippolmt/m5stack-atom-switchbot-lock.git
+cd m5stack-atom-switchbot-lock
 
 # Copy and configure the settings file
 cp config_template.py config.py
