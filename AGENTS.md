@@ -1,5 +1,7 @@
 # AGENTS.md
 
+`CLAUDE.md` is a symlink to this file: edit `AGENTS.md` directly (with `sed -i`, add `--follow-symlinks` if you target `CLAUDE.md`).
+
 MicroPython firmware for M5Stack ATOM Lite (ESP32-PICO-D4) controlling a SwitchBot Lock via API v1.1. Single file (`main.py`), deep sleep between button presses. Short press = UNLOCK, long press (≥1s) = LOCK. Config lives in `config.py` (git-ignored, from `config_template.py`).
 
 ## Commands

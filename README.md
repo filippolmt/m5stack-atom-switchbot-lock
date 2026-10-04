@@ -153,7 +153,7 @@ Plain `mpremote` fails with `could not enter raw repl`: every RFC2217 connection
 ├── SETUP.md             # Full setup guide
 ├── README.md            # This file
 ├── AGENTS.md            # Guidance for coding agents (Codex, pi, Cursor, …) incl. the mbedTLS constraint
-├── CLAUDE.md            # Imports AGENTS.md for Claude Code
+├── CLAUDE.md            # Symlink to AGENTS.md (Claude Code)
 ├── LICENSE              # License
 └── .gitignore           # Excludes config.py and other sensitive files
 ```
