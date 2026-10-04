@@ -1,20 +1,21 @@
-# M5Stack ATOM - SwitchBot Lock Pro Controller
+# M5Stack ATOM - SwitchBot Lock Controller
 
-Control your **SwitchBot Lock Pro** by simply pressing the button on your **M5Stack ATOM**! 🚪🔐
+Control your **SwitchBot Lock** by simply pressing the button on your **M5Stack ATOM**! 🚪🔐
 
-This project provides a complete solution to integrate your M5Stack ATOM (ESP32) with the SwitchBot API and control a SwitchBot Lock Pro over Wi-Fi.
+This project provides a complete solution to integrate your M5Stack ATOM (ESP32) with the SwitchBot API and control a SwitchBot Lock over Wi-Fi.
 
 ## 🌟 Features
 
-- ✅ **Deep sleep mode** - Ultra-low power consumption (~10uA idle vs ~80mA active)
+- ✅ **Deep sleep mode** - ~10uA chip consumption while idle (ESP32-PICO datasheet; the whole board draws more) vs ~80mA active
 - ✅ **Wake on button press** - ESP32 wakes from deep sleep when button is pressed
 - ✅ **On-demand Wi-Fi** - Connects only when needed, disconnects immediately after API response
 - ✅ **Fast reconnect** - Caches Wi-Fi BSSID for ~1-2s faster reconnection after deep sleep
 - ✅ **Optional static IP** - Skip DHCP negotiation for ~500ms-1s faster connection
 - ✅ **Multicolor LED feedback** - Different colors indicate status and errors
 - ✅ **SwitchBot API v1.1** with signed token + secret headers
-- ✅ **Auto retry** - Retries API call once on failure
-- ✅ **Automated test suite** - 53 tests via Docker (Python 3.13 + pytest)
+- ✅ **Reliable result** - Success only when the API body reports `statusCode` 100 (HTTP 200 alone is not enough: an offline lock or hub also returns 200)
+- ✅ **Auto retry** - Retries API call once on failure; on `401` resyncs NTP first (RTC drift during deep sleep)
+- ✅ **Automated test suite** - 57 tests via Docker (Python 3.13 + pytest)
 - ✅ **CI/CD** - GitHub Actions runs tests on push/PR
 - ✅ **Complete setup guide** for VS Code + MicroPython
 
@@ -24,7 +25,7 @@ This project provides a complete solution to integrate your M5Stack ATOM (ESP32)
 
 - **M5Stack ATOM** (ESP32-PICO-D4)
 - USB Type-C cable
-- **SwitchBot Lock Pro** (set up and working)
+- **SwitchBot smart lock** (set up and working) — tested with Lock Pro and Lock Ultra
 - **Atomic Battery Base** (200mAh, optional) - for portable battery-powered operation
 
 ### Software
@@ -95,6 +96,39 @@ mpremote connect /dev/cu.usbserial-XXXX run main.py
 
 Then press the button on the M5Stack ATOM to control the lock.
 
+### Working from the toolbox container (RFC2217)
+
+Docker Desktop on macOS can't pass USB devices into containers, so when working from [toolbox](https://github.com/filippolmt/toolbox) the serial port is exposed over the network from the Mac.
+
+**On the Mac** (outside the container, restart it every session):
+
+```bash
+brew install esptool   # includes esp_rfc2217_server
+esp_rfc2217_server -v /dev/cu.usbserial-XXXX
+```
+
+- While it runs it holds the serial port: stop it before using the port directly on the Mac.
+- It listens on all interfaces: stop it on shared networks.
+- It listens on port 2217 (default); if that is taken, pass `-p <port>` and change it in the URL below.
+
+**In the container** (only `uv` needed):
+
+```bash
+P='rfc2217://host.docker.internal:2217?ign_set_control'
+
+# Flash (esptool enters the bootloader on its own)
+uvx esptool --port "$P" -b 115200 chip-id
+uvx esptool --port "$P" -b 115200 erase-flash
+uvx esptool --port "$P" -b 115200 write-flash 0x1000 M5STACK_ATOM-*.bin
+
+# Files / REPL: use tools/mpr.py instead of plain mpremote, one command per invocation
+uv run --no-project --with mpremote python tools/mpr.py connect "$P" fs ls
+uv run --no-project --with mpremote python tools/mpr.py connect "$P" cp main.py :main.py
+uv run --no-project --with mpremote python tools/mpr.py connect "$P" reset
+```
+
+Plain `mpremote` fails with `could not enter raw repl`: every RFC2217 connection resets the board and `main.py` deep-sleeps right after boot. `tools/mpr.py` spams Ctrl-C during boot until the `>>>` prompt shows, then hands the connection to mpremote. The `Failed to get VID/PID` warnings from esptool are harmless.
+
 ## 📁 Project Structure
 
 ```
@@ -102,6 +136,7 @@ Then press the button on the M5Stack ATOM to control the lock.
 ├── main.py              # Main MicroPython script
 ├── config_template.py   # Configuration template
 ├── config.py            # Configuration (create locally, not in git)
+├── tools/mpr.py         # mpremote wrapper for RFC2217 (toolbox container)
 ├── tests/               # Automated test suite (runs on CPython via Docker)
 │   ├── conftest.py      # Hardware stubs + fake config injection
 │   ├── test_epoch.py    # Epoch conversion & timestamp tests
@@ -117,6 +152,7 @@ Then press the button on the M5Stack ATOM to control the lock.
 ├── .github/workflows/test.yml  # CI: tests on push/PR to main
 ├── SETUP.md             # Full setup guide
 ├── README.md            # This file
+├── CLAUDE.md            # Guidance for Claude Code (incl. the mbedTLS constraint)
 ├── LICENSE              # License
 └── .gitignore           # Excludes config.py and other sensitive files
 ```
@@ -129,13 +165,13 @@ Then press the button on the M5Stack ATOM to control the lock.
    - **Short press (<1s)** = UNLOCK (green LED while holding)
    - **Long press (≥1s)** = LOCK (purple LED while holding)
    - Connects to Wi-Fi (fast reconnect if cached)
-   - Syncs time via NTP (skipped if RTC valid)
-   - Sends lock/unlock command to SwitchBot API
+   - Syncs time via NTP only if the RTC year is invalid (e.g. after power-on)
+   - Sends lock/unlock command to SwitchBot API and checks the `statusCode` in the response body
    - Disconnects Wi-Fi immediately after response
    - LED feedback based on result (Wi-Fi already off)
    - Returns to deep sleep
 3. **Power consumption**:
-   - Deep sleep: ~10uA (can run months on battery)
+   - Deep sleep: ~10uA for the ESP32 chip (RTC timer + RTC memory, per datasheet); board-level draw is higher and should be measured
    - Active (Wi-Fi + API call): ~80-150mA for 2-4 seconds
    - LED feedback: ~25mA for ~0.5s (Wi-Fi already off)
 
@@ -156,10 +192,9 @@ Then press the button on the M5Stack ATOM to control the lock.
 | 🩵 **Cyan** | Fast reconnect in progress |
 | 🟢 **Green (2 blinks)** | Door unlocked successfully |
 | 🟣 **Purple (2 blinks)** | Door locked successfully |
-| 🟡 **Yellow (2 blinks)** | NTP sync failed (continuing anyway) |
 | 🟡 **Yellow (4 blinks)** | Time sync error |
 | 🟠 **Orange (3 blinks)** | Wi-Fi connection timeout |
-| 🔴 **Red (3 blinks)** | API error |
+| 🔴 **Red (3 blinks)** | API error (incl. lock or hub offline) |
 | 🔴 **Red (6 fast blinks)** | Authentication error (401) |
 
 ## 🔋 Atomic Battery Base (Optional)
@@ -202,7 +237,7 @@ The project uses the SwitchBot API v1.1:
   - `sign`: Base64(HMAC-SHA256(token + t + nonce, secret))
 - **Commands**: `unlock` or `lock`
 
-MicroPython on ESP32 uses the 2000-01-01 epoch internally. The code converts it to the Unix epoch (1970) before signing and retries an NTP sync if the RTC year looks wrong before sending a command. If the timestamp is off you will get a `401 Unauthorized` from the API.
+MicroPython on ESP32 uses the 2000-01-01 epoch internally. The code converts it to the Unix epoch (1970) before signing and retries an NTP sync if the RTC year looks wrong before sending a command. Since the RTC drifts during deep sleep, a `401 Unauthorized` triggers one NTP resync and a retry before reporting an auth error.
 
 Full documentation: https://github.com/OpenWonderLabs/SwitchBotAPI
 
@@ -213,7 +248,7 @@ Connect to the serial terminal (115200 baud) to see:
 **Fresh boot:**
 ```
 ==================================================
-M5Stack ATOM Lite - SwitchBot Lock Pro Controller
+M5Stack ATOM Lite - SwitchBot Lock Controller
           (Deep Sleep Version)
 ==================================================
 
@@ -241,7 +276,6 @@ Action: UNLOCK
 Fast reconnect available (ch=1)
 Fast reconnect (ch=1)... OK!
   IP: 192.168.178.87
-✓ RTC time valid, skipping NTP sync
 Sending UNLOCK command...
 HTTP status: 200
 Response: {"statusCode":100,"body":{},"message":"success"}
@@ -262,7 +296,7 @@ Connecting to Wi-Fi: MySSID...
 ✓ Connected to Wi-Fi!
   IP: 192.168.178.87
   Cached ch=1 for fast reconnect
-RTC time invalid, syncing NTP...
+Clock seems unsynchronized (year=2000). Trying NTP...
 Synchronizing time via NTP...
 ✓ Time synchronized via NTP (UTC).
 Sending LOCK command...
@@ -272,6 +306,19 @@ Response: {"statusCode":100,"body":{},"message":"success"}
 
 Entering deep sleep...
 ```
+
+**Lock or hub offline (HTTP 200 but command failed → red blink):**
+```
+Sending UNLOCK command...
+HTTP status: 200
+Response: {"statusCode":161,"body":{},"message":"device offline"}
+✗ Command rejected by the API.
+Retry 1/1...
+...
+✗ API error
+```
+
+Common body `statusCode` values (SwitchBot API docs): `100` success, `151` device type error, `152` device not found, `160` command not supported, `161` device offline, `171` hub offline, `190` device internal error or invalid command format.
 
 ## 🧪 Automated Tests
 
@@ -284,17 +331,23 @@ make test-clean    # Remove the test Docker image
 
 Tests also run automatically via GitHub Actions on every push and PR to `main`.
 
-**What's tested** (53 test cases):
+**What's tested** (57 test cases):
 
 | Area | Tests |
 |------|-------|
 | Epoch conversion | Offset constant, `unix_time_ms()` range and precision |
 | HMAC-SHA256 | Manual RFC 2104 vs stdlib, long keys, empty inputs |
 | Auth headers | Required keys, uppercase Base64 signature, timestamp format |
-| HTTP send_command | Retry logic, 401 no-retry, response cleanup, attribute-raise resilience |
+| HTTP send_command | Retry logic, body statusCode check, 401 NTP resync, response cleanup, attribute-raise resilience |
 | RTC memory | Save/load roundtrip, invalid BSSID, channel bounds |
 | LED brightness | `_scale()` math, clamping at 255 |
 | Wi-Fi connect | Already-connected, timeout, fast reconnect, bssid fallback |
+
+### Hardware check (required for `main.py` changes)
+
+The tests stub the hardware and cannot reproduce the ESP32 **system heap** used by Wi-Fi/mbedTLS. Changing what `main.py` allocates at import time (new module-level functions, constants, imports, `Pin()`) can make the HTTPS call fail on the device with `MBEDTLS_ERR_MPI_ALLOC_FAILED`, even when every test passes.
+
+After uploading a changed `main.py`, open the serial log and press the button: the change is good only if the log shows `HTTP status: 200` and `"statusCode":100`. See [CLAUDE.md](CLAUDE.md) for the rules on what is safe to change.
 
 ## 🛠️ Troubleshooting
 

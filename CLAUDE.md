@@ -1,54 +1,30 @@
 # CLAUDE.md
 
-This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
+MicroPython firmware for M5Stack ATOM Lite (ESP32-PICO-D4) controlling a SwitchBot Lock via API v1.1. Single file (`main.py`), deep sleep between button presses. Short press = UNLOCK, long press (≥1s) = LOCK. Config lives in `config.py` (git-ignored, from `config_template.py`).
 
-## Project Overview
-
-MicroPython firmware for M5Stack ATOM Lite (ESP32) controlling a SwitchBot Lock Pro via API v1.1. Single-file architecture (`main.py`) with deep sleep between button presses. Short press = UNLOCK, long press (≥1s) = LOCK.
-
-## Development Commands
+## Commands
 
 ```bash
-# Tests (Docker, no hardware needed)
-make test                                              # 53 tests in Docker
-python -m pytest tests/test_wifi.py::test_name -v      # Single test locally
+make test                                                  # full suite in Docker
+uvx --with pytest pytest tests/test_wifi.py::test_name -v  # single test, no Docker
 
-# Flash firmware (use 115200 baud — 460800 causes disconnects on some boards)
+# Flash firmware at 115200 baud — 460800 causes disconnects on some boards
 esptool --port $PORT --baud 115200 erase-flash
 esptool --port $PORT --baud 115200 write_flash 0x1000 M5STACK_ATOM-*.bin
 
-# Upload to device
-mpremote connect /dev/cu.usbserial-XXXX cp main.py :main.py
-mpremote connect /dev/cu.usbserial-XXXX cp config.py :config.py
+mpremote connect $PORT cp main.py :main.py
 ```
 
-## ESP32 System Heap / mbedTLS Constraint (CRITICAL)
+From the toolbox container (no USB in Docker Desktop on macOS): the user runs `esp_rfc2217_server -v /dev/cu.usbserial-XXXX` on the Mac; then use `PORT='rfc2217://host.docker.internal:2217?ign_set_control'` and `uv run --no-project --with mpremote python tools/mpr.py` in place of `mpremote` (plain mpremote can't reach the REPL: `main.py` deep-sleeps right after boot). Details: README "Working from the toolbox container".
 
-The ESP32-PICO-D4 has a **system heap** (invisible to Python) used by WiFi/mbedTLS for TLS/RSA. Any change to module-level code (new functions, imports, constants, dicts) shifts the heap layout and causes `MBEDTLS_ERR_MPI_ALLOC_FAILED`. **Confirmed: even adding a single `Pin()` allocation or function definition breaks TLS.**
+## mbedTLS heap constraint (CRITICAL)
 
-### NEVER do:
-- Add new module-level functions, constants, dicts, or imports
-- `gc.collect()`, `machine.ADC()`, or `Pin()` allocations before `urequests.post()`
-- `WDT(timeout=...)`, `wlan.config(pm=0)`, extra `import` statements
+WiFi/mbedTLS use an ESP32 **system heap** invisible to Python. Changing what `main.py` allocates at import time shifts that heap and can make the HTTPS call fail with `MBEDTLS_ERR_MPI_ALLOC_FAILED`.
 
-### Safe changes:
-- Modify **existing numeric values** only (brightness, timing, delays) — same bytecode structure
-- `gc.collect()` AFTER HTTP requests
-- Lazy imports inside **existing** functions
-- `try: from config import X / except: pass` inside **existing** functions
+Keep `main.py`'s module level as it is: same imports, constants and function definitions. Put new logic inside existing functions, with lazy imports or `try: from config import X` there. Allocate `Pin()` / `machine.ADC()` and call `gc.collect()` only after `urequests.post()`. Confirmed to break TLS: a new module-level `Pin()` or function, `WDT(timeout=...)`, `wlan.config(pm=0)`.
 
-## Configuration
-
-Copy `config_template.py` to `config.py` (git-ignored). Required: `WIFI_SSID`, `WIFI_PASSWORD`, `SWITCHBOT_TOKEN`, `SWITCHBOT_SECRET`, `SWITCHBOT_DEVICE_ID`, `BUTTON_GPIO`. Optional: `WIFI_STATIC_IP`.
-
-## RTC Memory Layout (8 bytes)
-
-| Bytes | Content |
-|-------|---------|
-| 0-5 | BSSID (for fast reconnect) |
-| 6 | WiFi channel |
-| 7 | Valid flag (0xAA) |
+**A `main.py` change is done only when it passes on hardware**: upload it, press the button with the serial log open, and see `HTTP status: 200` with `"statusCode":100` in the response. Passing tests prove nothing here — the stubs have no system heap.
 
 ## Testing
 
-`tests/conftest.py` injects fake MicroPython modules (`machine`, `network`, `neopixel`, `urequests`, `ntptime`, `config`) into `sys.modules` BEFORE `import main`. Key stubs: `FakeRTC`, `FakeWLAN`, `FakeNeoPixel`. The `_reset_rtc` fixture resets RTC memory between tests.
+`tests/conftest.py` injects fake MicroPython modules (`machine`, `network`, `neopixel`, `urequests`, `ntptime`, `config`) into `sys.modules` before `import main`; a new hardware dependency needs a stub there first. The `_reset_rtc` fixture clears RTC memory between tests.

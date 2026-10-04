@@ -1,6 +1,6 @@
 # VS Code + MicroPython Setup Guide for M5Stack ATOM
 
-This guide walks you through the full VS Code development environment setup to program your M5Stack ATOM with MicroPython and control your SwitchBot Lock Pro.
+This guide walks you through the full VS Code development environment setup to program your M5Stack ATOM with MicroPython and control your SwitchBot Lock.
 
 ## 📋 Prerequisites
 
@@ -189,7 +189,7 @@ response = requests.get("https://api.switch-bot.com/v1.1/devices", headers=heade
 print(response.status_code, response.text)
 ```
 
-Find your **Lock Pro** in the device list and copy the `deviceId`.
+Find your **lock** (e.g. Lock Pro, Lock Ultra) in the device list and copy the `deviceId`.
 
 ---
 
@@ -287,7 +287,7 @@ On first start, you should see in the serial terminal:
 
 ```
 ==================================================
-M5Stack ATOM Lite - SwitchBot Lock Pro Controller
+M5Stack ATOM Lite - SwitchBot Lock Controller
           (Deep Sleep Version)
 ==================================================
 

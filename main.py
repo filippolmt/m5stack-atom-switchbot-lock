@@ -1,5 +1,5 @@
 """
-M5Stack ATOM Lite - SwitchBot Lock Pro Controller (Deep Sleep Version)
+M5Stack ATOM Lite - SwitchBot Lock Controller (Deep Sleep Version)
 - Deep sleep for minimal power consumption (~10uA)
 - Wake on button press (GPIO 39)
 - Short press (<1s) = UNLOCK, Long press (>=1s) = LOCK
@@ -107,14 +107,6 @@ def ensure_time_synced(min_year=2024):
         return False
 
 
-def is_time_valid(min_year=2024):
-    """Check if RTC time is already valid (survives deep sleep)."""
-    try:
-        return time.gmtime()[0] >= min_year
-    except Exception:
-        return False  # Assume time invalid if gmtime() fails
-
-
 # --------------------- RTC MEMORY FOR FAST RECONNECT --------------------- #
 
 
@@ -204,7 +196,7 @@ def hmac_sha256_digest(secret_bytes, msg_bytes):
 
 
 class StatusLED:
-    def __init__(self, pin_num=27, brightness=32):
+    def __init__(self, pin_num=27, brightness=12):
         import neopixel
 
         self.brightness = brightness  # 0-255
@@ -279,7 +271,7 @@ class StatusLED:
 
 
 class SwitchBotController:
-    """Class that manages the SwitchBot Lock Pro"""
+    """Class that manages the SwitchBot Lock"""
 
     API_BASE_URL = "https://api.switch-bot.com/v1.1"
 
@@ -324,7 +316,7 @@ class SwitchBotController:
 
     def send_command(self, command="unlock", retries=1):
         """
-        Send lock/unlock command to the SwitchBot Lock Pro.
+        Send lock/unlock command to the SwitchBot Lock.
 
         Args:
             command: "unlock" or "lock" (default: "unlock")
@@ -332,7 +324,7 @@ class SwitchBotController:
 
         Returns:
             str: Result code - "success", "auth_error", "api_error",
-                 "time_error", "network_error"
+                 "time_error"
         """
         url = f"{self.API_BASE_URL}/devices/{self.device_id}/commands"
 
@@ -380,10 +372,22 @@ class SwitchBotController:
                 print("HTTP status:", status)
                 print("Response:", text)
 
+                # SwitchBot replies HTTP 200 even when the command fails
+                # (e.g. 161 device offline, 171 hub offline): check body statusCode
                 if status == 200:
-                    return "success"
+                    try:
+                        if json.loads(text).get("statusCode") == 100:
+                            return "success"
+                    except Exception:
+                        pass  # Unparsable body; treat as failure and retry
+                    print("✗ Command rejected by the API.")
 
                 if status == 401:
+                    if attempt < retries:
+                        # RTC drifts during deep sleep; a stale timestamp gives 401
+                        print("✗ 401: resyncing NTP before retry...")
+                        sync_time_via_ntp()
+                        continue
                     print("✗ Authentication failed (401). Check token/secret.")
                     return "auth_error"
 
@@ -399,7 +403,7 @@ class SwitchBotController:
 # --------------------- WIFI SETUP --------------------- #
 
 
-def connect_wifi(ssid, password, timeout=10, cached_bssid=None, cached_channel=None):
+def connect_wifi(ssid, password, timeout=7, cached_bssid=None, cached_channel=None):
     """
     Connect the device to the Wi-Fi network with fast reconnect support.
 
@@ -598,9 +602,9 @@ def handle_button_wake(led):
     - Cyan: Fast reconnect in progress
     - Green (2 blinks): Unlock success
     - Purple (2 blinks): Lock success
-    - Yellow (2 blinks): NTP sync failed (continuing anyway)
     - Orange (3 blinks): Wi-Fi timeout
-    - Red (3 blinks): API error
+    - Yellow (4 blinks): Time sync error
+    - Red (3 blinks): API error (incl. device/hub offline)
     - Red fast (6 blinks): Auth error (401)
 
     Args:
@@ -633,7 +637,7 @@ def handle_button_wake(led):
         led.blue()  # Blue = normal Wi-Fi scan
 
     # Connect to Wi-Fi (pass cached values to avoid double RTC read)
-    if not connect_wifi(WIFI_SSID, WIFI_PASSWORD, timeout=10,
+    if not connect_wifi(WIFI_SSID, WIFI_PASSWORD, timeout=7,
                         cached_bssid=cached_bssid,
                         cached_channel=cached_channel):
         print("✗ Cannot connect to Wi-Fi")
@@ -648,29 +652,8 @@ def handle_button_wake(led):
     else:
         led.green()
 
-    # Only sync NTP if time is invalid (RTC survives deep sleep)
-    ntp_ok = True
-    if is_time_valid():
-        print("✓ RTC time valid, skipping NTP sync")
-    else:
-        print("RTC time invalid, syncing NTP...")
-        try:
-            sync_time_via_ntp()
-            if not is_time_valid():
-                ntp_ok = False
-        except Exception:
-            ntp_ok = False
-
-        if not ntp_ok:
-            print("⚠ NTP sync failed, attempting anyway...")
-            led.off()
-            led.blink_yellow(times=2, on_ms=150, off_ms=100)
-            if is_lock:
-                led.purple()
-            else:
-                led.green()
-
-    # Initialize controller and send command (with 1 retry)
+    # Initialize controller and send command (with 1 retry).
+    # send_command syncs NTP if the RTC is invalid and aborts with time_error if that fails.
     controller = SwitchBotController(
         SWITCHBOT_TOKEN, SWITCHBOT_SECRET, SWITCHBOT_DEVICE_ID
     )
@@ -723,7 +706,7 @@ def main():
     3. If no (fresh boot): show startup message, go to sleep
     """
     # Initialize status LED first for immediate feedback
-    led = StatusLED(pin_num=27, brightness=32)
+    led = StatusLED(pin_num=27, brightness=12)
 
     # Check wake reason
     if reset_cause() == DEEPSLEEP_RESET:
@@ -732,7 +715,7 @@ def main():
     else:
         # Fresh boot (power on or reset)
         print("\n" + "=" * 50)
-        print("M5Stack ATOM Lite - SwitchBot Lock Pro Controller")
+        print("M5Stack ATOM Lite - SwitchBot Lock Controller")
         print("          (Deep Sleep Version)")
         print("=" * 50)
         print(f"\nDevice ID: {SWITCHBOT_DEVICE_ID}")
