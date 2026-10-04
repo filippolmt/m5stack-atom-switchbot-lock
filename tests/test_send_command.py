@@ -47,14 +47,60 @@ def test_response_always_closed():
 
 
 def test_auth_error_on_401():
-    """HTTP 401 -> 'auth_error', no retry."""
+    """HTTP 401 -> NTP resync + retry, then 'auth_error'."""
     ctrl = _make_controller()
     post_mock = MagicMock(return_value=FakeResponse(401))
     with patch("main.ensure_time_synced", return_value=True), \
+         patch("main.sync_time_via_ntp") as ntp_mock, \
          patch.object(main.urequests, "post", post_mock):
         result = ctrl.send_command("lock", retries=1)
     assert result == "auth_error"
+    assert post_mock.call_count == 2
+    ntp_mock.assert_called_once()
+
+
+def test_auth_error_on_401_without_retries():
+    """HTTP 401 with retries=0 -> 'auth_error' immediately, no NTP."""
+    ctrl = _make_controller()
+    post_mock = MagicMock(return_value=FakeResponse(401))
+    with patch("main.ensure_time_synced", return_value=True), \
+         patch("main.sync_time_via_ntp") as ntp_mock, \
+         patch.object(main.urequests, "post", post_mock):
+        result = ctrl.send_command("lock", retries=0)
+    assert result == "auth_error"
     assert post_mock.call_count == 1
+    ntp_mock.assert_not_called()
+
+
+def test_success_after_401_resync():
+    """401 (stale clock) then 200 after NTP resync -> 'success'."""
+    ctrl = _make_controller()
+    post_mock = MagicMock(side_effect=[FakeResponse(401), FakeResponse(200)])
+    with patch("main.ensure_time_synced", return_value=True), \
+         patch("main.sync_time_via_ntp"), \
+         patch.object(main.urequests, "post", post_mock):
+        result = ctrl.send_command("unlock", retries=1)
+    assert result == "success"
+
+
+def test_api_error_on_200_with_device_offline():
+    """HTTP 200 but body statusCode 161 (device offline) -> 'api_error', not success."""
+    ctrl = _make_controller()
+    post_mock = MagicMock(return_value=FakeResponse(200, '{"statusCode":161,"body":{},"message":"device offline"}'))
+    with patch("main.ensure_time_synced", return_value=True), \
+         patch.object(main.urequests, "post", post_mock):
+        result = ctrl.send_command("unlock", retries=1)
+    assert result == "api_error"
+    assert post_mock.call_count == 2
+
+
+def test_api_error_on_200_with_unparsable_body():
+    """HTTP 200 with non-JSON body -> 'api_error'."""
+    ctrl = _make_controller()
+    with patch("main.ensure_time_synced", return_value=True), \
+         patch.object(main.urequests, "post", return_value=FakeResponse(200, "<html>")):
+        result = ctrl.send_command("unlock", retries=0)
+    assert result == "api_error"
 
 
 def test_api_error_after_retries_on_500():

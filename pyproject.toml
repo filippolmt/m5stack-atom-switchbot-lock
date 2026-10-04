@@ -1,5 +1,5 @@
 [project]
-name = "m5stack-atom-switchbot-lock-pro"
+name = "m5stack-atom-switchbot-lock"
 version = "1.0.0"
 
 [tool.pytest.ini_options]
